@@ -2518,13 +2518,13 @@ document.getElementById('btn-calc-mag').onclick = async function() {
     const agcStr = await readReg("0x34");
     await new Promise(r => setTimeout(r, 100)); // 100ms 대기
     const gcIStr = await readReg("0x48");
-    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 100ms 대기
     const gcQStr = await readReg("0x4E");
-    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 100ms 대기
     const sIQStr = await readReg("0x21C");
-    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 100ms 대기
     const sQQStr = await readReg("0x21E");
-    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 100ms 대기
 
     // 수치 변환
     const agcRaw = MLX90382_UTILS.toInt(agcStr);
