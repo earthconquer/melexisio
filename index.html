@@ -2463,31 +2463,27 @@
         return val > 32767 ? val - 65536 : val;
     }
 
-    // 버튼 이벤트 리스너 등록
+    // 3. 레지스터 단일 읽기 함수 (한 줄 단위 처리 및 변환 포함)
+    async function readReg(addr) {
+      const cmd = `:90382_SPI:Read:ADDRess 1, ${addr}`;
+      
+      try {
 
-// 3. 레지스터 단일 읽기 함수 (한 번만 읽고 종료)
+        // [중요] 새 명령을 보내기 전, 기존에 쌓여있던 응답 백로그를 비웁니다.
+        // 이렇게 해야 이전 레지스터 읽기 결과가 현재 결과에 영향을 주지 않습니다.
+        _rxLastLines.length = 0;
 
-// 3. 레지스터 단일 읽기 함수 (한 줄 단위 처리 및 변환 포함)
-async function readReg(addr) {
-  const cmd = `:90382_SPI:Read:ADDRess 1, ${addr}`;
-  
-  try {
+        // 1. 응답 패턴(16진수)을 기다리는 프로미스 생성
+        // 0x... 형태나 순수 16진수 값 한 줄이 올 때까지 최대 2초 대기합니다.
+        const linePromise = waitForLineRegex(/^(0x)?[0-9A-Fa-f]+$/, 2000);
 
-    // [중요] 새 명령을 보내기 전, 기존에 쌓여있던 응답 백로그를 비웁니다.
-    // 이렇게 해야 이전 레지스터 읽기 결과가 현재 결과에 영향을 주지 않습니다.
-    _rxLastLines.length = 0;
+        // 2. 원래의 sendCommand 실행
+        await sendCommand(cmd);
 
-    // 1. 응답 패턴(16진수)을 기다리는 프로미스 생성
-    // 0x... 형태나 순수 16진수 값 한 줄이 올 때까지 최대 2초 대기합니다.
-    const linePromise = waitForLineRegex(/^(0x)?[0-9A-Fa-f]+$/, 2000);
-
-    // 2. 원래의 sendCommand 실행
-    await sendCommand(cmd);
-
-    // 3. processRx가 데이터를 한 줄 완성할 때까지 대기
-    const rxmsg = await linePromise;
-    
-    console.log(`[MLX90382] Addr ${addr} Raw Response:`, rxmsg);
+        // 3. processRx가 데이터를 한 줄 완성할 때까지 대기
+        const rxmsg = await linePromise;
+        
+        console.log(`[MLX90382] Addr ${addr} Raw Response:`, rxmsg);
 
     // 4. 변환 로직 수행
     let parsedValue;
@@ -2509,67 +2505,6 @@ async function readReg(addr) {
     console.warn(`[MLX90382] Read timeout or error at ${addr}:`, err.message);
     return '';
   }
-
-/*
-async function readReg(addr) {
-
-  const cmd = `:90382_SPI:Read:ADDRess 1, ${addr}\r`;
-  
-  const p = waitForLineRegex(/^(0x)?[0-9A-Fa-f]+$/, 10000);
-
-  await sendCommand(cmd);
-  let rxmsg = '';
-
-  reading = true;
-  (async () => {
-    try {
-      while (reading) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) processRx(value);
-        rxmsg = value        
-      }
-      //변환 로직을 readReg 안에 직접 포함 
-      if (twosComplementRegs.has(addr)) {
-          parsedValue = MLX90382_UTILS.toS16(rxmsg);
-        } else {
-          parsedValue = MLX90382_UTILS.toInt(rxmsg);
-        }
-    } catch (err) {
-      console.error('Read error:', err);
-      setStatus('Read error: ' + err.message);
-    } finally {
-      try { reader.releaseLock(); } catch {}
-    }
-  })();
-
-  console.log("rxmsg2:", rxmsg);
-  return rxmsg;
-*/
-
-  /*
-  try {
-    reader = textDecoder.readable.getReader();
-   const { value, done } = await reader.read();
-    if (!done && value) {
-      processRx(value);
-      rxmsg = value;
-    
-     변환 로직을 readReg 안에 직접 포함 
-    if (twosComplementRegs.has(addr)) {
-        parsedValue = MLX90382_UTILS.toS16(rxmsg);
-       } else {
-         parsedValue = MLX90382_UTILS.toInt(rxmsg);
-      }
-    }
-  } catch (err) {
-    console.error('Read error:', err);
-    setStatus('Read error: ' + err.message);
-  } finally {
-    reading = false;
-    try { reader.releaseLock(); } catch {}
-  } */
-
 }
 
 // 4. 버튼 이벤트 리스너
@@ -2583,13 +2518,13 @@ document.getElementById('btn-calc-mag').onclick = async function() {
     const agcStr = await readReg("0x34");
     await new Promise(r => setTimeout(r, 100)); // 100ms 대기
     const gcIStr = await readReg("0x48");
-    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
     const gcQStr = await readReg("0x4E");
-    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
     const sIQStr = await readReg("0x21C");
-    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
     const sQQStr = await readReg("0x21E");
-    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    await new Promise(r => setTimeout(r, 100)); // 50ms 대기
 
     // 수치 변환
     const agcRaw = MLX90382_UTILS.toInt(agcStr);
@@ -2641,8 +2576,17 @@ document.getElementById('btn-calc-mag').onclick = async function() {
     btn.disabled = false;
     btn.innerHTML = 'Read Registers & Calculate';
   }
-};
-  //James
+}; //James
+
+// 체크박스 상태 변경 시 즉시 UI 반영
+document.getElementById('chk-mT').addEventListener('change', function() {
+    if (!this.checked) document.getElementById('out-mT').value = "";
+});
+
+document.getElementById('chk-mTmm').addEventListener('change', function() {
+    if (!this.checked) document.getElementById('out-mTmm').value = "";
+});
+//James
 
 
     // Keep legends visually matched to canvases on window resize
