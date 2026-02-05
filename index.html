@@ -190,6 +190,9 @@
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="irchart-tab" data-bs-toggle="tab" data-bs-target="#tab5" type="button" role="tab" aria-controls="tab5" aria-selected="false">IR Chart</button>
         </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="MLX90382" data-bs-toggle="tab" data-bs-target="#tab6" type="button" role="tab" aria-controls="tab6" aria-selected="false" href="#MLX90382">MLX90382</button>
+        </li>
       </ul>
       <div class="tab-content pt-3" id="mainTabsContent">
       <div class="tab-pane fade show active" id="tab1" role="tabpanel" aria-labelledby="terminal-tab">
@@ -346,7 +349,7 @@
         </div>
       </div>
       <div class="tab-pane fade" id="tab5" role="tabpanel" aria-labelledby="irchart-tab">
-  <div class="p-3" id="irChartContainer" style="max-height:70vh;overflow:auto;">
+        <div class="p-3" id="irChartContainer" style="max-height:70vh;overflow:auto;">
           <div class="d-flex flex-column gap-3">
             <canvas id="irChart" width="1200" height="400" style="border:1px solid var(--panel-border);border-radius:4px;background:#0002;width:100%;display:block;"></canvas>
             <div class="small d-flex flex-wrap align-items-center gap-3">
@@ -358,6 +361,50 @@
               <button id="irChartSaveImage" class="btn btn-outline-info btn-sm">Save image</button>
             </div>
           </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="tab6" role="tabpanel" aria-labelledby="MLX90382">
+        <div class="card mt-3" style="max-width: 700px; margin: auto; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">MLX90382 Magnetic Field Strength Calculator</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-group row">
+                    <label class="col-sm-4 col-form-label font-weight-bold">Sensing Mode (g_IMC):</label>
+                    <div class="col-sm-8">
+                        <select id="sel-imc-mode" class="form-control">
+                            <option value="sfi_xy" selected>Stray-Field Immune (SFI) - X-Y</option>
+                            <option value="rotary_mid_xy">Rotary (Mid Field) - X-Y</option>
+                            <option value="rotary_mid_xz">Rotary (Mid Field) - X-Z/Y-Z</option>
+                            <option value="rotary_high_xy">Rotary (High Field) - X-Y</option>
+                            <option value="rotary_high_xz">Rotary (High Field) - X-Z/Y-Z</option>
+                        </select>
+                    </div>
+                </div>
+                <hr>
+                
+                <div class="form-group">
+                    <div class="custom-control custom-checkbox mb-2">
+                        <input type="checkbox" class="custom-control-input" id="chk-mT" checked>
+                        <label class="custom-control-label" for="chk-mT">Enable Magnetic Field Strength [mT]</label>
+                    </div>
+                    <input type="text" id="out-mT" class="form-control form-control-lg text-right font-weight-bold" 
+                           style="background-color: #f8f9fa; font-family: monospace;" readonly placeholder="---.---- mT">
+                </div>
+
+                <div class="form-group">
+                    <div class="custom-control custom-checkbox mb-2">
+                        <input type="checkbox" class="custom-control-input" id="chk-mTmm" checked>
+                        <label class="custom-control-label" for="chk-mTmm">Enable Magnetic Field Strength [mT/mm]</label>
+                    </div>
+                    <input type="text" id="out-mTmm" class="form-control form-control-lg text-right font-weight-bold" 
+                           style="background-color: #f8f9fa; font-family: monospace;" readonly placeholder="---.---- mT/mm">
+                </div>
+                
+                <button id="btn-calc-mag" class="btn btn-success btn-block btn-lg shadow-sm">
+                    <i class="fas fa-calculator mr-2"></i>Read Registers & Calculate
+                </button>
+            </div>
         </div>
       </div>
       
@@ -372,6 +419,8 @@
       </p>
     </main>
   </div>
+
+
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
@@ -395,6 +444,15 @@
     let history = [];
     let historyIndex = -1;       // -1 = not navigating
     let draftBeforeNav = '';
+
+    // James
+    const IMC_PARAMS = {
+    "rotary_mid_xy":  { gi: 1.35, gq: 1.35 },
+    "rotary_mid_xz":  { gi: 1.35, gq: 1.17 },
+    "rotary_high_xy": { gi: 0.64, gq: 0.64 },
+    "rotary_high_xz": { gi: 0.64, gq: 1.21 },
+    "sfi_xy":         { gi: 1.0,  gq: 1.0  }
+    }; // James
 
     const $ = (id) => document.getElementById(id);
     const logEl = $('log');
@@ -2358,6 +2416,235 @@
         // Uncomment to debug: logError('IR continuous parse failed: ' + e.message + '\n');
       }
     }
+
+  //James
+
+  // 2's complement 변환이 필요한 레지스터 목록 
+  const twosComplementRegs = new Set([
+    "0x48", // gcI
+    "0x4E", // gcQ
+    "0x21C", // sIQ
+    "0x21E" // sQQ
+  ]);
+
+      /** * MLX90382 자기장 계산 유틸리티 함수 
+    * (버튼 이벤트 외부에 선언하여 ReferenceError 방지)
+    */
+    const MLX90382_UTILS = {
+        // 0x 접두사 및 특수문자 제거 후 정수 변환
+        toInt: (rawStr) => {
+            if (!rawStr) return 0;
+            // 숫자, 알파벳(A-F)만 남기고 제거 (0x 포함 문자열 처리)
+            const clean = rawStr.toString().toLowerCase().replace(/[^0-9a-f]/g, '');
+            console.log("Cleaned string:", clean);// Debug
+            return parseInt(clean, 16) || 0;
+        },
+        // 16비트 Signed 정수 변환
+        toS16: (rawStr) => {
+            const val = MLX90382_UTILS.toInt(rawStr);
+            return val > 32767 ? val - 65536 : val;
+        }
+    };
+
+      //await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+      //console.log("AGC Response:", agcStr);// Debug
+      // 문자열 응답을 안전하게 숫자로 변환하는 함수
+    function cleanParseInt(rawStr) {
+        if (!rawStr) return 0;
+        // 1. 0x 접두사 및 공백, 제어 문자 제거
+        let cleanStr = rawStr.toString().toLowerCase().replace("0x", "").trim();
+        // 2. 16진수 파싱 (0x가 없어도 16진수로 해석하도록 명시)
+        return parseInt(cleanStr, 16);
+    }
+
+    // 16비트 부호 있는 정수 변환 (2's complement) [cite: 1106, 1648]
+    function parseS16(hexStr) {
+        const val = cleanParseInt(hexStr);
+        return val > 32767 ? val - 65536 : val;
+    }
+
+    // 버튼 이벤트 리스너 등록
+
+// 3. 레지스터 단일 읽기 함수 (한 번만 읽고 종료)
+
+// 3. 레지스터 단일 읽기 함수 (한 줄 단위 처리 및 변환 포함)
+async function readReg(addr) {
+  const cmd = `:90382_SPI:Read:ADDRess 1, ${addr}`;
+  
+  try {
+
+    // [중요] 새 명령을 보내기 전, 기존에 쌓여있던 응답 백로그를 비웁니다.
+    // 이렇게 해야 이전 레지스터 읽기 결과가 현재 결과에 영향을 주지 않습니다.
+    _rxLastLines.length = 0;
+
+    // 1. 응답 패턴(16진수)을 기다리는 프로미스 생성
+    // 0x... 형태나 순수 16진수 값 한 줄이 올 때까지 최대 2초 대기합니다.
+    const linePromise = waitForLineRegex(/^(0x)?[0-9A-Fa-f]+$/, 2000);
+
+    // 2. 원래의 sendCommand 실행
+    await sendCommand(cmd);
+
+    // 3. processRx가 데이터를 한 줄 완성할 때까지 대기
+    const rxmsg = await linePromise;
+    
+    console.log(`[MLX90382] Addr ${addr} Raw Response:`, rxmsg);
+
+    // 4. 변환 로직 수행
+    let parsedValue;
+    if (twosComplementRegs.has(addr)) {
+      // 2's complement 변환이 필요한 레지스터 (0x48, 0x4E, 0x21C, 0x21E)
+      parsedValue = MLX90382_UTILS.toS16(rxmsg);
+    } else {
+      // 일반 정수 변환
+      parsedValue = MLX90382_UTILS.toInt(rxmsg);
+    }
+
+    // 계산 로직에서 사용할 수 있도록 변환된 숫자 값을 반환하거나, 
+    // 필요에 따라 원본 문자열 rxmsg를 반환하도록 선택할 수 있습니다.
+    // 여기서는 기존 호출부와의 호환성을 위해 원본 문자열을 반환하되,
+    // 내부적으로 parsedValue가 정상적으로 계산됨을 보장합니다.
+    return rxmsg.trim();
+
+  } catch (err) {
+    console.warn(`[MLX90382] Read timeout or error at ${addr}:`, err.message);
+    return '';
+  }
+
+/*
+async function readReg(addr) {
+
+  const cmd = `:90382_SPI:Read:ADDRess 1, ${addr}\r`;
+  
+  const p = waitForLineRegex(/^(0x)?[0-9A-Fa-f]+$/, 10000);
+
+  await sendCommand(cmd);
+  let rxmsg = '';
+
+  reading = true;
+  (async () => {
+    try {
+      while (reading) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) processRx(value);
+        rxmsg = value        
+      }
+      //변환 로직을 readReg 안에 직접 포함 
+      if (twosComplementRegs.has(addr)) {
+          parsedValue = MLX90382_UTILS.toS16(rxmsg);
+        } else {
+          parsedValue = MLX90382_UTILS.toInt(rxmsg);
+        }
+    } catch (err) {
+      console.error('Read error:', err);
+      setStatus('Read error: ' + err.message);
+    } finally {
+      try { reader.releaseLock(); } catch {}
+    }
+  })();
+
+  console.log("rxmsg2:", rxmsg);
+  return rxmsg;
+*/
+
+  /*
+  try {
+    reader = textDecoder.readable.getReader();
+   const { value, done } = await reader.read();
+    if (!done && value) {
+      processRx(value);
+      rxmsg = value;
+    
+     변환 로직을 readReg 안에 직접 포함 
+    if (twosComplementRegs.has(addr)) {
+        parsedValue = MLX90382_UTILS.toS16(rxmsg);
+       } else {
+         parsedValue = MLX90382_UTILS.toInt(rxmsg);
+      }
+    }
+  } catch (err) {
+    console.error('Read error:', err);
+    setStatus('Read error: ' + err.message);
+  } finally {
+    reading = false;
+    try { reader.releaseLock(); } catch {}
+  } */
+
+}
+
+// 4. 버튼 이벤트 리스너
+document.getElementById('btn-calc-mag').onclick = async function() {
+  const btn = this;
+  try {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Reading...';
+
+    // 레지스터 순차 읽기
+    const agcStr = await readReg("0x34");
+    await new Promise(r => setTimeout(r, 100)); // 100ms 대기
+    const gcIStr = await readReg("0x48");
+    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    const gcQStr = await readReg("0x4E");
+    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    const sIQStr = await readReg("0x21C");
+    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+    const sQQStr = await readReg("0x21E");
+    await new Promise(r => setTimeout(r, 50)); // 50ms 대기
+
+    // 수치 변환
+    const agcRaw = MLX90382_UTILS.toInt(agcStr);
+    const gcI    = MLX90382_UTILS.toS16(gcIStr);
+    const gcQ    = MLX90382_UTILS.toS16(gcQStr);
+    const sIQ    = MLX90382_UTILS.toS16(sIQStr);
+    const sQQRaw = MLX90382_UTILS.toInt(sQQStr);
+
+    console.log("AGC Response:", agcStr);
+    console.log("gcI Response:", gcIStr);
+    console.log("gcQ Response:", gcQStr);
+    console.log("sIQ Response:", sIQStr);
+    console.log("sQQ Response:", sQQStr);
+
+    // S_QQ 주의사항
+    const sQQ = sQQRaw === 0 ? 32768 : sQQRaw;
+
+    // Gain 계산
+    const gain = 32 * Math.pow(Math.pow(3, 1/16), (agcRaw & 0x3F));
+    const sensitivity = 0.055; // V/V/T
+
+    const mode = IMC_PARAMS[document.getElementById('sel-imc-mode').value];
+    const denomCommon = 4 * 16384 * gain * sensitivity;
+
+    // 자기장 계산
+    const fieldIT = (gcI + (sIQ / 32768.0) * gcQ) / (denomCommon * mode.gi);
+    const fieldQT = (gcQ * (32768.0 / sQQ)) / (denomCommon * mode.gq);
+
+    const totalT = Math.sqrt(Math.pow(fieldIT, 2) + Math.pow(fieldQT, 2));
+    const totalTmm = (2 * totalT) / 1.554;
+
+    // UI 표시
+  if (document.getElementById('chk-mT').checked) {
+    const outMT = document.getElementById('out-mT');
+    outMT.value = (totalT * 1000).toFixed(4) + " mT";
+    outMT.style.color = "black";   // 글자색 검은색 지정
+  }
+
+  if (document.getElementById('chk-mTmm').checked) {
+    const outMTmm = document.getElementById('out-mTmm');
+    outMTmm.value = (totalTmm * 1000).toFixed(4) + " mT/mm";
+    outMTmm.style.color = "black"; // 글자색 검은색 지정
+  }
+
+  } catch (err) {
+    console.error("[MLX90382] Calc Error:", err);
+    alert("Operation failed. Ensure board is connected. Check F12 Console.");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Read Registers & Calculate';
+  }
+};
+  //James
+
+
     // Keep legends visually matched to canvases on window resize
     window.addEventListener('resize', () => {
       try { syncIrLegendDisplayHeight(); } catch {}
